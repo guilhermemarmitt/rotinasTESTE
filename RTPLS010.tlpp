@@ -1,0 +1,141 @@
+#include 'totvs.ch'
+#include 'Protheus.ch'
+#include 'fileio.ch'
+
+// ROTINA AUTOMATICA - INCLUSAO DE Grupos de cobertura PLS
+
+User Function rtpls010()
+
+    PERGUNTE("RTPLS010",.T.)
+    //Pergunte("RTPLS001",.T.)
+
+    Processa( {|| rtpls010() }, "Aguarde...", "Carregando grupos de cobertura...",.F.)
+
+Return
+
+Static Function rtpls010()
+
+    Local cArqLog := "C:\Alice\logImp"+ strTran(time(),":","") +".log"
+    local nHdl := FCREATE(cArqLog)
+    Local cLog
+    Local cEnter := CRLF
+    
+    Local cArq := ""
+    Local aDados := {}
+    Local i
+    //Local lFirst := .T.
+    Local cLinha := ""
+
+    Local cCodInt := "0001"
+    Local cGrpALICE := "018"
+    
+    cArq := mv_par01
+
+    IF ! File(cArq)
+        MsgStop("Arquivo não encontrado!")    
+        Return
+    ENDIF
+
+    if nHdl = -1
+        MsgStop("Falha ao criar o arquivo de log")
+        Return
+    endif
+
+    FT_FUSE(cArq)
+
+    FT_FGoTop()
+    While !FT_FEOF()
+
+        cLinha := FT_FReadLn()
+
+        AADD(aDados,Separa(cLinha,",",.T.))
+        FT_FSkip()
+
+    Enddo
+    
+    //DBSelectArea("BG8")
+    BG8->(DBSetOrder(1)) //| BG8_FILIAL+BG8_CODINT+BG8_CODGRU+BG8_CODPAD+BG8_CODPSA+BG8_NIVEL
+    BDL->(DBSetOrder(1))
+    BR8->(DBSetOrder(1)) //BR8_FILIAL+BR8_CODPAD+BR8_CODPSA+BR8_ANASIN
+
+    FOR i := 1 to len(aDados)
+
+        //| VERIFICA SE O PROCEDIMENTO EXISTE NO SISTEMA
+        if BR8->( MsSeek( xFilial("BR8") + aDados[i][1] + aDados[i][2] ) )
+
+            if ! BG8->( MsSeek( xFilial("BG8") + cCodInt + cGrpALICE + aDados[i][1] + aDados[i][2] ) )
+                BG8->( Reclock('BG8',.T.) )
+
+                BG8->BG8_CODINT := cCodInt
+                BG8->BG8_CODGRU := cGrpALICE
+                BG8->BG8_CODPAD := aDados[i][1]
+                BG8->BG8_CODPSA := aDados[i][2]
+                BG8->BG8_BENUTL := "1"
+                BG8->BG8_AUTORI := aDados[i][3]
+
+                if ! empty(aDados[i][4])
+                    if BDL->( MsSeek( xFilial("BDL") + cCodInt + padl(aDados[i][4], 3, "0") ) ) 
+                        BG8->BG8_CLACAR := padl(aDados[i][4], 3, "0")
+                        BG8->BG8_CARENC := BDL->BDL_CARENC
+                        BG8->BG8_UNCAR := BDL->BDL_UNCAR
+                    else
+                        cLog := "BDL-> CLASSE DE CARENCIA NÃO IDENTIFICADA NA BDL " + padl(aDados[i][4], 3, "0") + cEnter
+                        FWrite(nHdl, cLog, len(cLog) ) // Insere texto no arquivo
+                    endif
+                endif
+                
+                BG8->BG8_NIVEL := BR8->BR8_NIVEL //"4"
+                BG8->BG8_IDAMAX := 150
+                BG8->BG8_CDNV01 := SUBSTR(BG8->BG8_CODPSA,1,5)
+                BG8->BG8_CDNV02 := SUBSTR(BG8->BG8_CODPSA,1,3)
+                BG8->BG8_CDNV03 := SUBSTR(BG8->BG8_CODPSA,1,1)
+                BG8->BG8_DIFIDA := "2"
+                BG8->( MsUnlock() )
+            /*else
+                cLog := "BG8-> PROCEDIMENTO JÁ SE ENCONTRA NO GRUPO DE COBERTURA " + aDados[i][1] + aDados[i][2] + cEnter
+                FWrite(nHdl, cLog, len(cLog) )*/
+            endif
+
+        else
+            cLog := "BR8-> PROCEDIMENTO NÃO ENCONTRADO NA TABELA PADRÃO " + aDados[i][1] + aDados[i][2] + cEnter
+            FWrite(nHdl, cLog, len(cLog) )
+        endif
+
+    NEXT i 
+    
+    fclose(nHdl)
+
+Return
+
+User function rtpls01A()
+
+    Local cGrpCob := "018"
+
+    RpcSetEnv("01","01")
+
+    //| Abertura de tabelas
+    dbselectArea("BI3")
+    dbselectArea("BRV")
+
+    BI3->( dbSetOrder(1) )
+    BRV->( dbSetOrder(1) ) //| BRV_FILIAL+BRV_CODPLA+BRV_VERSAO+BRV_CODGRU
+
+    while ! BI3->( eof() )
+
+        if empty(BI3->BI3_DATBLO) .and. ! BRV->( MsSeek( xFilial("BRV") + BI3->( BI3_CODINT + BI3_CODIGO + BI3_VERSAO) + cGrpCob ) )
+
+            BRV->( Reclock("BRV", .T.) )
+            BRV->BRV_CODPLA := BI3->( BI3_CODINT + BI3_CODIGO )
+            BRV->BRV_VERSAO := BI3->BI3_VERSAO
+            BRV->BRV_CODGRU := cGrpCob
+            BRV->( MsUnlock() )
+
+        endif
+
+        BI3->( dbSkip() )
+
+    enddo
+
+    RpcClearEnv()
+
+return
