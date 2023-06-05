@@ -1,5 +1,7 @@
 
 
 user function teste()
+	
+	Local lTeste := .F.
 
-return
+return lTeste
